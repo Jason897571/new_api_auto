@@ -19,9 +19,9 @@ func NewRouter(st *store.Store) http.Handler {
 		r.Put("/sites/{id}", s.updateSite)
 		r.Delete("/sites/{id}", s.deleteSite)
 		r.Post("/sites/{id}/test", s.testSite)
-		// r.Get("/sites/{id}/pricing", s.getPricing)     // Task 9
-		// r.Put("/sites/{id}/pricing", s.putPricing)      // Task 9
-		// r.Post("/validate-expr", s.validateExpr)        // Task 9
+		r.Get("/sites/{id}/pricing", s.getPricing)
+		r.Put("/sites/{id}/pricing", s.putPricing)
+		r.Post("/validate-expr", s.validateExpr)
 	})
 	return r
 }
