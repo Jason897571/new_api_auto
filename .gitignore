@@ -4,3 +4,5 @@ data/
 frontend/dist/
 backend/backend
 .DS_Store
+.env
+backend/frontend/
