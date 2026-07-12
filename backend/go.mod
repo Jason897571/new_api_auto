@@ -4,6 +4,7 @@ go 1.25.5
 
 require (
 	github.com/expr-lang/expr v1.17.8
+	github.com/go-chi/chi/v5 v5.3.1
 	github.com/tidwall/gjson v1.19.0
 	modernc.org/sqlite v1.53.0
 )
