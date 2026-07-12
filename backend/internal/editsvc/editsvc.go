@@ -2,12 +2,18 @@ package editsvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"newapiauto/internal/pricing"
 	"newapiauto/internal/store"
 	"newapiauto/internal/validate"
 )
+
+// ErrClient marks errors caused by client-side input problems (validation,
+// unparseable values, unknown fields) detected before any upstream network
+// call is made. Callers should map these to HTTP 400 rather than 502.
+var ErrClient = errors.New("client error")
 
 type OptionRW interface {
 	GetOptions(ctx context.Context) (pricing.OptionSet, error)
@@ -24,7 +30,7 @@ func Apply(ctx context.Context, st *store.Store, siteID int64, siteName string, 
 	for _, e := range edits {
 		if e.Field == pricing.FieldBillingExpr && !e.Delete {
 			if err := validate.Expr(e.Value); err != nil {
-				return Result{}, fmt.Errorf("model %s expr invalid: %w", e.Model, err)
+				return Result{}, fmt.Errorf("%w: model %s expr invalid: %v", ErrClient, e.Model, err)
 			}
 		}
 	}
@@ -36,7 +42,7 @@ func Apply(ctx context.Context, st *store.Store, siteID int64, siteName string, 
 	// 3. 合并
 	changed, err := pricing.ApplyEdits(current, edits)
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("%w: %v", ErrClient, err)
 	}
 	if len(changed) == 0 {
 		return Result{}, nil

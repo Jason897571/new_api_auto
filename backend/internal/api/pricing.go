@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"time"
@@ -80,7 +81,11 @@ func (s *server) putPricing(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	res, err := editsvc.Apply(ctx, s.st, id, site.Name, c, req.Edits)
 	if err != nil {
-		writeErr(w, 502, err.Error())
+		if errors.Is(err, editsvc.ErrClient) {
+			writeErr(w, 400, err.Error())
+		} else {
+			writeErr(w, 502, err.Error())
+		}
 		return
 	}
 	writeJSON(w, 200, res)
