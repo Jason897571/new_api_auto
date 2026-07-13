@@ -9,12 +9,14 @@ import (
 )
 
 type fakeRW struct {
-	opts pricing.OptionSet
-	puts map[string]string
+	opts  pricing.OptionSet
+	puts  map[string]string
+	order []string
 }
 
 func (f *fakeRW) GetOptions(ctx context.Context) (pricing.OptionSet, error) { return f.opts, nil }
 func (f *fakeRW) PutOption(ctx context.Context, key, value string) error {
+	f.order = append(f.order, key)
 	f.puts[key] = value
 	f.opts[key] = value
 	return nil
@@ -61,5 +63,30 @@ func TestApplyNoChangeNoSnapshot(t *testing.T) {
 	}
 	if len(res.ChangedKeys) != 0 || len(rw.puts) != 0 || res.SnapshotID != 0 {
 		t.Fatalf("expected no-op, got %+v puts=%+v", res, rw.puts)
+	}
+}
+
+func TestApplyWritesExprBeforeMode(t *testing.T) {
+	st, _ := store.Open(":memory:")
+	rw := &fakeRW{opts: pricing.OptionSet{}, puts: map[string]string{}, order: []string{}}
+	_, err := Apply(context.Background(), st, 1, "sg", rw, []pricing.Edit{
+		{Model: "claude-x", Field: pricing.FieldBillingMode, Value: "tiered_expr"},
+		{Model: "claude-x", Field: pricing.FieldBillingExpr, Value: `tier("base", p*3)`},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// billing_expr 必须在 billing_mode 之前写
+	iExpr, iMode := -1, -1
+	for i, k := range rw.order {
+		if k == pricing.KeyBillingExpr {
+			iExpr = i
+		}
+		if k == pricing.KeyBillingMode {
+			iMode = i
+		}
+	}
+	if iExpr == -1 || iMode == -1 || iExpr > iMode {
+		t.Fatalf("expr must be written before mode, order=%v", rw.order)
 	}
 }

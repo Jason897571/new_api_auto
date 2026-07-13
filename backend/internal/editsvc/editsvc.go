@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"sync"
 
 	"newapiauto/internal/pricing"
 	"newapiauto/internal/store"
@@ -25,7 +27,45 @@ type Result struct {
 	SnapshotID  int64    `json:"snapshot_id"`
 }
 
+var siteLocks sync.Map // siteID(int64) -> *sync.Mutex
+
+func lockSite(siteID int64) func() {
+	m, _ := siteLocks.LoadOrStore(siteID, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// orderedKeys 返回稳定写入顺序：billing_expr 最先，其余非 billing_mode 的 key 按字母序，
+// billing_mode 最后（表达式先就位、模式后激活）。
+func orderedKeys(changed map[string]string) []string {
+	var head []string // 非 billing_mode
+	hasMode := false
+	for k := range changed {
+		if k == pricing.KeyBillingMode {
+			hasMode = true
+			continue
+		}
+		head = append(head, k)
+	}
+	sort.Slice(head, func(i, j int) bool {
+		if head[i] == pricing.KeyBillingExpr {
+			return true
+		}
+		if head[j] == pricing.KeyBillingExpr {
+			return false
+		}
+		return head[i] < head[j]
+	})
+	if hasMode {
+		head = append(head, pricing.KeyBillingMode)
+	}
+	return head
+}
+
 func Apply(ctx context.Context, st *store.Store, siteID int64, siteName string, rw OptionRW, edits []pricing.Edit) (Result, error) {
+	unlock := lockSite(siteID)
+	defer unlock()
 	// 1. 校验所有阶梯表达式 edit
 	for _, e := range edits {
 		if e.Field == pricing.FieldBillingExpr && !e.Delete {
@@ -61,7 +101,8 @@ func Apply(ctx context.Context, st *store.Store, siteID int64, siteName string, 
 	}
 	// 5. 逐 key 写入，失败即停
 	written := []string{}
-	for key, val := range changed {
+	for _, key := range orderedKeys(changed) {
+		val := changed[key]
 		if err := rw.PutOption(ctx, key, val); err != nil {
 			st.AddAudit(store.AuditEntry{Action: "edit", TargetSite: siteName,
 				Keys: written, Models: models, Result: "partial: " + err.Error()})
