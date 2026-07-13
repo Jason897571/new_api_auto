@@ -116,6 +116,38 @@ func Apply(ctx context.Context, st *store.Store, siteID int64, siteName string, 
 	return Result{ChangedKeys: changedKeys, SnapshotID: snapID}, nil
 }
 
+// Rollback 把某快照里保存的旧值写回目标站。空串旧值（原先不存在该 option）跳过。
+func Rollback(ctx context.Context, st *store.Store, siteID int64, siteName string, rw OptionRW, snapshotID int64) (Result, error) {
+	unlock := lockSite(siteID)
+	defer unlock()
+
+	snap, err := st.GetSnapshot(snapshotID)
+	if err != nil {
+		return Result{}, fmt.Errorf("load snapshot: %w", err)
+	}
+	if snap.SiteID != siteID {
+		return Result{}, fmt.Errorf("snapshot %d does not belong to site %d", snapshotID, siteID)
+	}
+	// 只写非空旧值
+	toWrite := map[string]string{}
+	for k, v := range snap.Payload {
+		if v != "" {
+			toWrite[k] = v
+		}
+	}
+	written := []string{}
+	for _, key := range orderedKeys(toWrite) {
+		if err := rw.PutOption(ctx, key, toWrite[key]); err != nil {
+			st.AddAudit(store.AuditEntry{Action: "rollback", TargetSite: siteName,
+				Keys: written, Result: "partial: " + err.Error()})
+			return Result{ChangedKeys: written}, fmt.Errorf("rollback write %s failed: %w", key, err)
+		}
+		written = append(written, key)
+	}
+	st.AddAudit(store.AuditEntry{Action: "rollback", TargetSite: siteName, Keys: written, Result: "success"})
+	return Result{ChangedKeys: written}, nil
+}
+
 func modelsFromEdits(edits []pricing.Edit) []string {
 	seen := map[string]bool{}
 	var out []string

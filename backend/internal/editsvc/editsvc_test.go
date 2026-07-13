@@ -90,3 +90,34 @@ func TestApplyWritesExprBeforeMode(t *testing.T) {
 		t.Fatalf("expr must be written before mode, order=%v", rw.order)
 	}
 }
+
+func TestRollbackRestoresOldValues(t *testing.T) {
+	st, _ := store.Open(":memory:")
+	// 模拟一次改动后的状态：目标站当前是新值，快照存了旧值
+	rw := &fakeRW{opts: pricing.OptionSet{pricing.KeyModelRatio: `{"gpt-4o":9.999}`}, puts: map[string]string{}, order: []string{}}
+	snapID, _ := st.CreateSnapshot(1, "manual edit", map[string]string{pricing.KeyModelRatio: `{"gpt-4o":2.5}`})
+	res, err := Rollback(context.Background(), st, 1, "sg", rw, snapID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rw.puts[pricing.KeyModelRatio] != `{"gpt-4o":2.5}` {
+		t.Fatalf("rollback should restore old value, got %q", rw.puts[pricing.KeyModelRatio])
+	}
+	if len(res.ChangedKeys) != 1 {
+		t.Fatalf("expected 1 restored key, got %v", res.ChangedKeys)
+	}
+}
+
+func TestRollbackSkipsEmptyOldValue(t *testing.T) {
+	st, _ := store.Open(":memory:")
+	rw := &fakeRW{opts: pricing.OptionSet{}, puts: map[string]string{}, order: []string{}}
+	// 旧值为空串（原先该 option 不存在）→ 跳过，不写空串
+	snapID, _ := st.CreateSnapshot(1, "manual edit", map[string]string{pricing.KeyModelRatio: ""})
+	_, err := Rollback(context.Background(), st, 1, "sg", rw, snapID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rw.puts) != 0 {
+		t.Fatalf("empty old value should be skipped, got %v", rw.puts)
+	}
+}
