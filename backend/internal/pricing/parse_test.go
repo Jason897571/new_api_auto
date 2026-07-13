@@ -2,8 +2,6 @@ package pricing
 
 import "testing"
 
-func f(v float64) *float64 { return &v }
-
 func TestParseRatioAndTiered(t *testing.T) {
 	opts := OptionSet{
 		KeyModelRatio:      `{"gpt-4o":2.5,"claude-x":3}`,

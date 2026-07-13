@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -90,7 +92,11 @@ func (s *server) testSite(w http.ResponseWriter, r *http.Request) {
 	}
 	c, _, err := s.clientForSite(id)
 	if err != nil {
-		writeErr(w, 404, "site not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, 404, "site not found")
+		} else {
+			writeErr(w, 500, err.Error())
+		}
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)

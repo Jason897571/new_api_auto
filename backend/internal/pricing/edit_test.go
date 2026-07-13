@@ -74,3 +74,21 @@ func TestApplyEditsNoopWhenSame(t *testing.T) {
 		t.Fatalf("expected no change, got %+v", changed)
 	}
 }
+
+func TestApplyEditsDeleteNonexistentModel(t *testing.T) {
+	cur := OptionSet{KeyModelRatio: `{"gpt-4o":2.5}`}
+	changed, err := ApplyEdits(cur, []Edit{{Model: "ghost", Field: FieldModelRatio, Delete: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 0 {
+		t.Fatalf("deleting a nonexistent model should be a no-op, got %+v", changed)
+	}
+}
+
+func TestApplyEditsUnknownField(t *testing.T) {
+	_, err := ApplyEdits(OptionSet{}, []Edit{{Model: "m", Field: Field("Bogus"), Value: "1"}})
+	if err == nil {
+		t.Fatal("expected error for unknown field")
+	}
+}
