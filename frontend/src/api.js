@@ -18,3 +18,11 @@ export const testSite = (id) => req('POST', `/api/sites/${id}/test`)
 export const getPricing = (id) => req('GET', `/api/sites/${id}/pricing`)
 export const putPricing = (id, edits) => req('PUT', `/api/sites/${id}/pricing`, { edits })
 export const validateExpr = (expr) => req('POST', '/api/validate-expr', { expr })
+export const getDiff = (sourceId, targetId) =>
+  req('POST', '/api/diff', { source_id: sourceId, target_id: targetId })
+export const syncPreview = (sourceId, targetIds, selections) =>
+  req('POST', '/api/sync/preview', { source_id: sourceId, target_ids: targetIds, selections })
+export const runSync = (sourceId, targetIds, selections) =>
+  req('POST', '/api/sync', { source_id: sourceId, target_ids: targetIds, selections })
+export const getSnapshots = (siteId) => req('GET', `/api/sites/${siteId}/snapshots`)
+export const rollbackSnapshot = (snapshotId) => req('POST', `/api/snapshots/${snapshotId}/rollback`)
