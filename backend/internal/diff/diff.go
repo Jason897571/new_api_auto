@@ -26,7 +26,7 @@ func fmtFloat(p *float64) *string {
 	return &s
 }
 
-// ratioAccessor 返回某模型某 ratio 字段的字符串指针（nil=未设置）。
+// ratioValue 返回某模型某 ratio 字段的字符串指针（nil=未设置）。
 func ratioValue(m *pricing.ModelPricing, f pricing.Field) *string {
 	if m == nil {
 		return nil

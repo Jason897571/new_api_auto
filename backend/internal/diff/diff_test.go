@@ -56,3 +56,24 @@ func TestComputeTieredExprDiff(t *testing.T) {
 		t.Fatalf("expected BillingExpr diff, got %+v", got[0].Fields)
 	}
 }
+
+func TestComputeBillingModeDiff(t *testing.T) {
+	src := map[string]*pricing.ModelPricing{"c": {Model: "c", BillingMode: "tiered_expr"}}
+	tgt := map[string]*pricing.ModelPricing{"c": {Model: "c", BillingMode: "ratio"}}
+	got := Compute(src, tgt)
+	if len(got) != 1 {
+		t.Fatalf("expected a diff, got %+v", got)
+	}
+	found := false
+	for _, f := range got[0].Fields {
+		if f.Field == pricing.FieldBillingMode {
+			found = true
+			if f.Source == nil || f.Target == nil || *f.Source != "tiered_expr" || *f.Target != "ratio" {
+				t.Fatalf("wrong mode diff: %+v", f)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected BillingMode diff, got %+v", got[0].Fields)
+	}
+}
