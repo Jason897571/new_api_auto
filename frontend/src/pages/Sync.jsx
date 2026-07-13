@@ -99,14 +99,20 @@ export default function Sync() {
               return (
                 <tr key={key}>
                   <td><input type="checkbox" checked={!!sel[key]}
-                    onChange={(e) => setSel({ ...sel, [key]: e.target.checked })} /></td>
+                    onChange={(e) => { setSel({ ...sel, [key]: e.target.checked }); setPreview(null); setResult(null) }} /></td>
                   <td>{row.model}</td><td>{row.field}</td>
                   <td>{row.source ?? <i>无</i>}</td>
-                  {targetIds.map((tid) => (
-                    <td key={tid} style={{ color: row.targets[tid] === row.source ? '#888' : '#b00' }}>
-                      {row.targets[tid] ?? <i>无</i>}
-                    </td>
-                  ))}
+                  {targetIds.map((tid) => {
+                    const v = row.targets[tid]
+                    if (v === undefined) {
+                      // 未出现在 diff 中 = 与源站一致
+                      return <td key={tid} style={{ color: '#888' }}>{row.source ?? '='}</td>
+                    }
+                    if (v === null) {
+                      return <td key={tid} style={{ color: '#b00' }}><i>无</i></td>
+                    }
+                    return <td key={tid} style={{ color: '#b00' }}>{v}</td>
+                  })}
                 </tr>
               )
             })}
