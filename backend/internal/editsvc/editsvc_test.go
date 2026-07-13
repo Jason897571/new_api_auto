@@ -108,16 +108,39 @@ func TestRollbackRestoresOldValues(t *testing.T) {
 	}
 }
 
-func TestRollbackSkipsEmptyOldValue(t *testing.T) {
+func TestRollbackClearsAbsentKey(t *testing.T) {
 	st, _ := store.Open(":memory:")
 	rw := &fakeRW{opts: pricing.OptionSet{}, puts: map[string]string{}, order: []string{}}
-	// 旧值为空串（原先该 option 不存在）→ 跳过，不写空串
-	snapID, _ := st.CreateSnapshot(1, "manual edit", map[string]string{pricing.KeyModelRatio: ""})
+	// 旧值为空串（原先该 option 不存在）→ 写回 "{}"，清空为原先不存在的状态
+	snapID, _ := st.CreateSnapshot(1, "manual edit", map[string]string{pricing.KeyBillingExpr: ""})
 	_, err := Rollback(context.Background(), st, 1, "sg", rw, snapID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rw.puts) != 0 {
-		t.Fatalf("empty old value should be skipped, got %v", rw.puts)
+	if rw.puts[pricing.KeyBillingExpr] != "{}" {
+		t.Fatalf("empty old value should be cleared to {}, got %v", rw.puts)
+	}
+}
+
+func TestRollbackAfterAddingKey(t *testing.T) {
+	st, _ := store.Open(":memory:")
+	// 模拟同步向目标写入了原先完全不存在的阶梯计费 key（billing_mode + billing_expr）
+	rw := &fakeRW{opts: pricing.OptionSet{
+		pricing.KeyBillingMode: "tiered_expr",
+		pricing.KeyBillingExpr: `tier("base", p*3)`,
+	}, puts: map[string]string{}, order: []string{}}
+	snapID, _ := st.CreateSnapshot(1, "manual edit", map[string]string{
+		pricing.KeyBillingMode: "",
+		pricing.KeyBillingExpr: "",
+	})
+	res, err := Rollback(context.Background(), st, 1, "sg", rw, snapID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rw.puts[pricing.KeyBillingMode] != "{}" || rw.puts[pricing.KeyBillingExpr] != "{}" {
+		t.Fatalf("both absent keys should be cleared to {}, got %v", rw.puts)
+	}
+	if len(res.ChangedKeys) != 2 {
+		t.Fatalf("expected 2 restored keys, got %v", res.ChangedKeys)
 	}
 }

@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"net/http"
 	"time"
 
@@ -39,7 +41,11 @@ func (s *server) rollbackSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	c, site, err := s.clientForSite(snap.SiteID)
 	if err != nil {
-		writeErr(w, 404, "site not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, 404, "site not found")
+		} else {
+			writeErr(w, 500, err.Error())
+		}
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
