@@ -22,6 +22,11 @@ func NewRouter(st *store.Store) http.Handler {
 		r.Get("/sites/{id}/pricing", s.getPricing)
 		r.Put("/sites/{id}/pricing", s.putPricing)
 		r.Post("/validate-expr", s.validateExpr)
+		r.Post("/diff", s.postDiff)
+		r.Post("/sync/preview", s.postSyncPreview)
+		r.Post("/sync", s.postSync)
+		r.Get("/sites/{id}/snapshots", s.listSnapshots)
+		r.Post("/snapshots/{id}/rollback", s.rollbackSnapshot)
 	})
 	return r
 }

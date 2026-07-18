@@ -9,12 +9,14 @@ import (
 )
 
 type fakeRW struct {
-	opts pricing.OptionSet
-	puts map[string]string
+	opts  pricing.OptionSet
+	puts  map[string]string
+	order []string
 }
 
 func (f *fakeRW) GetOptions(ctx context.Context) (pricing.OptionSet, error) { return f.opts, nil }
 func (f *fakeRW) PutOption(ctx context.Context, key, value string) error {
+	f.order = append(f.order, key)
 	f.puts[key] = value
 	f.opts[key] = value
 	return nil
@@ -61,5 +63,84 @@ func TestApplyNoChangeNoSnapshot(t *testing.T) {
 	}
 	if len(res.ChangedKeys) != 0 || len(rw.puts) != 0 || res.SnapshotID != 0 {
 		t.Fatalf("expected no-op, got %+v puts=%+v", res, rw.puts)
+	}
+}
+
+func TestApplyWritesExprBeforeMode(t *testing.T) {
+	st, _ := store.Open(":memory:")
+	rw := &fakeRW{opts: pricing.OptionSet{}, puts: map[string]string{}, order: []string{}}
+	_, err := Apply(context.Background(), st, 1, "sg", rw, []pricing.Edit{
+		{Model: "claude-x", Field: pricing.FieldBillingMode, Value: "tiered_expr"},
+		{Model: "claude-x", Field: pricing.FieldBillingExpr, Value: `tier("base", p*3)`},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// billing_expr 必须在 billing_mode 之前写
+	iExpr, iMode := -1, -1
+	for i, k := range rw.order {
+		if k == pricing.KeyBillingExpr {
+			iExpr = i
+		}
+		if k == pricing.KeyBillingMode {
+			iMode = i
+		}
+	}
+	if iExpr == -1 || iMode == -1 || iExpr > iMode {
+		t.Fatalf("expr must be written before mode, order=%v", rw.order)
+	}
+}
+
+func TestRollbackRestoresOldValues(t *testing.T) {
+	st, _ := store.Open(":memory:")
+	// 模拟一次改动后的状态：目标站当前是新值，快照存了旧值
+	rw := &fakeRW{opts: pricing.OptionSet{pricing.KeyModelRatio: `{"gpt-4o":9.999}`}, puts: map[string]string{}, order: []string{}}
+	snapID, _ := st.CreateSnapshot(1, "manual edit", map[string]string{pricing.KeyModelRatio: `{"gpt-4o":2.5}`})
+	res, err := Rollback(context.Background(), st, 1, "sg", rw, snapID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rw.puts[pricing.KeyModelRatio] != `{"gpt-4o":2.5}` {
+		t.Fatalf("rollback should restore old value, got %q", rw.puts[pricing.KeyModelRatio])
+	}
+	if len(res.ChangedKeys) != 1 {
+		t.Fatalf("expected 1 restored key, got %v", res.ChangedKeys)
+	}
+}
+
+func TestRollbackClearsAbsentKey(t *testing.T) {
+	st, _ := store.Open(":memory:")
+	rw := &fakeRW{opts: pricing.OptionSet{}, puts: map[string]string{}, order: []string{}}
+	// 旧值为空串（原先该 option 不存在）→ 写回 "{}"，清空为原先不存在的状态
+	snapID, _ := st.CreateSnapshot(1, "manual edit", map[string]string{pricing.KeyBillingExpr: ""})
+	_, err := Rollback(context.Background(), st, 1, "sg", rw, snapID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rw.puts[pricing.KeyBillingExpr] != "{}" {
+		t.Fatalf("empty old value should be cleared to {}, got %v", rw.puts)
+	}
+}
+
+func TestRollbackAfterAddingKey(t *testing.T) {
+	st, _ := store.Open(":memory:")
+	// 模拟同步向目标写入了原先完全不存在的阶梯计费 key（billing_mode + billing_expr）
+	rw := &fakeRW{opts: pricing.OptionSet{
+		pricing.KeyBillingMode: "tiered_expr",
+		pricing.KeyBillingExpr: `tier("base", p*3)`,
+	}, puts: map[string]string{}, order: []string{}}
+	snapID, _ := st.CreateSnapshot(1, "manual edit", map[string]string{
+		pricing.KeyBillingMode: "",
+		pricing.KeyBillingExpr: "",
+	})
+	res, err := Rollback(context.Background(), st, 1, "sg", rw, snapID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rw.puts[pricing.KeyBillingMode] != "{}" || rw.puts[pricing.KeyBillingExpr] != "{}" {
+		t.Fatalf("both absent keys should be cleared to {}, got %v", rw.puts)
+	}
+	if len(res.ChangedKeys) != 2 {
+		t.Fatalf("expected 2 restored keys, got %v", res.ChangedKeys)
 	}
 }

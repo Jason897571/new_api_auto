@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -142,7 +143,9 @@ func (s *Store) ListSnapshots(siteID int64) ([]Snapshot, error) {
 		if err := rows.Scan(&snap.ID, &snap.SiteID, &snap.CreatedAt, &snap.Reason, &payload); err != nil {
 			return nil, err
 		}
-		json.Unmarshal([]byte(payload), &snap.Payload)
+		if err := json.Unmarshal([]byte(payload), &snap.Payload); err != nil {
+			log.Printf("store: bad snapshot payload id=%d: %v", snap.ID, err)
+		}
 		out = append(out, snap)
 	}
 	return out, rows.Err()
@@ -160,8 +163,14 @@ type AuditEntry struct {
 }
 
 func (s *Store) AddAudit(a AuditEntry) (int64, error) {
-	kb, _ := json.Marshal(a.Keys)
-	mb, _ := json.Marshal(a.Models)
+	kb, err := json.Marshal(a.Keys)
+	if err != nil {
+		log.Printf("store: marshal audit keys: %v", err)
+	}
+	mb, err := json.Marshal(a.Models)
+	if err != nil {
+		log.Printf("store: marshal audit models: %v", err)
+	}
 	res, err := s.db.Exec(`INSERT INTO audit(ts,action,source_site,target_site,keys_json,models_json,result)
 		VALUES(?,?,?,?,?,?,?)`, now(), a.Action, a.SourceSite, a.TargetSite, string(kb), string(mb), a.Result)
 	if err != nil {
@@ -183,8 +192,12 @@ func (s *Store) ListAudit(limit int) ([]AuditEntry, error) {
 		if err := rows.Scan(&a.ID, &a.TS, &a.Action, &a.SourceSite, &a.TargetSite, &kb, &mb, &a.Result); err != nil {
 			return nil, err
 		}
-		json.Unmarshal([]byte(kb), &a.Keys)
-		json.Unmarshal([]byte(mb), &a.Models)
+		if err := json.Unmarshal([]byte(kb), &a.Keys); err != nil {
+			log.Printf("store: bad audit keys id=%d: %v", a.ID, err)
+		}
+		if err := json.Unmarshal([]byte(mb), &a.Models); err != nil {
+			log.Printf("store: bad audit models id=%d: %v", a.ID, err)
+		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
