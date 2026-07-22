@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -21,7 +22,8 @@ func Open(path string) (*Store, error) {
 	schema := `
 CREATE TABLE IF NOT EXISTS sites(
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, base_url TEXT,
-  token TEXT, user_id TEXT, created_at INTEGER, updated_at INTEGER);
+  token TEXT, user_id TEXT, role TEXT NOT NULL DEFAULT 'main', parent_id INTEGER,
+  created_at INTEGER, updated_at INTEGER);
 CREATE TABLE IF NOT EXISTS snapshots(
   id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER, created_at INTEGER,
   reason TEXT, payload_json TEXT);
@@ -30,6 +32,15 @@ CREATE TABLE IF NOT EXISTS audit(
   source_site TEXT, target_site TEXT, keys_json TEXT, models_json TEXT, result TEXT);`
 	if _, err := db.Exec(schema); err != nil {
 		return nil, err
+	}
+	// 兼容老库：补齐 sites 的 role / parent_id 列（已存在则忽略 duplicate column）。
+	for _, alter := range []string{
+		`ALTER TABLE sites ADD COLUMN role TEXT NOT NULL DEFAULT 'main'`,
+		`ALTER TABLE sites ADD COLUMN parent_id INTEGER`,
+	} {
+		if _, err := db.Exec(alter); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return nil, err
+		}
 	}
 	return &Store{db: db}, nil
 }
@@ -40,16 +51,27 @@ type Site struct {
 	BaseURL   string `json:"base_url"`
 	Token     string `json:"token"`
 	UserID    string `json:"user_id"`
+	Role      string `json:"role"`               // "main" | "sub"
+	ParentID  *int64 `json:"parent_id,omitempty"` // 子站指向其主站
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
 }
 
 func now() int64 { return time.Now().Unix() }
 
+// normalizeRelation 保证 role 合法，且只有子站保留 parent_id。
+func normalizeRelation(site *Site) {
+	if site.Role != "sub" {
+		site.Role = "main"
+		site.ParentID = nil
+	}
+}
+
 func (s *Store) CreateSite(site Site) (int64, error) {
+	normalizeRelation(&site)
 	t := now()
-	res, err := s.db.Exec(`INSERT INTO sites(name,base_url,token,user_id,created_at,updated_at)
-		VALUES(?,?,?,?,?,?)`, site.Name, site.BaseURL, site.Token, site.UserID, t, t)
+	res, err := s.db.Exec(`INSERT INTO sites(name,base_url,token,user_id,role,parent_id,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?)`, site.Name, site.BaseURL, site.Token, site.UserID, site.Role, site.ParentID, t, t)
 	if err != nil {
 		return 0, err
 	}
@@ -58,17 +80,28 @@ func (s *Store) CreateSite(site Site) (int64, error) {
 
 func scanSite(row interface{ Scan(...interface{}) error }) (Site, error) {
 	var s Site
-	err := row.Scan(&s.ID, &s.Name, &s.BaseURL, &s.Token, &s.UserID, &s.CreatedAt, &s.UpdatedAt)
+	var role sql.NullString
+	var parent sql.NullInt64
+	err := row.Scan(&s.ID, &s.Name, &s.BaseURL, &s.Token, &s.UserID, &role, &parent, &s.CreatedAt, &s.UpdatedAt)
+	if role.Valid && role.String != "" {
+		s.Role = role.String
+	} else {
+		s.Role = "main"
+	}
+	if parent.Valid {
+		v := parent.Int64
+		s.ParentID = &v
+	}
 	return s, err
 }
 
 func (s *Store) GetSite(id int64) (Site, error) {
-	row := s.db.QueryRow(`SELECT id,name,base_url,token,user_id,created_at,updated_at FROM sites WHERE id=?`, id)
+	row := s.db.QueryRow(`SELECT id,name,base_url,token,user_id,role,parent_id,created_at,updated_at FROM sites WHERE id=?`, id)
 	return scanSite(row)
 }
 
 func (s *Store) ListSites() ([]Site, error) {
-	rows, err := s.db.Query(`SELECT id,name,base_url,token,user_id,created_at,updated_at FROM sites ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id,name,base_url,token,user_id,role,parent_id,created_at,updated_at FROM sites ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -85,8 +118,9 @@ func (s *Store) ListSites() ([]Site, error) {
 }
 
 func (s *Store) UpdateSite(site Site) error {
-	_, err := s.db.Exec(`UPDATE sites SET name=?,base_url=?,token=?,user_id=?,updated_at=? WHERE id=?`,
-		site.Name, site.BaseURL, site.Token, site.UserID, now(), site.ID)
+	normalizeRelation(&site)
+	_, err := s.db.Exec(`UPDATE sites SET name=?,base_url=?,token=?,user_id=?,role=?,parent_id=?,updated_at=? WHERE id=?`,
+		site.Name, site.BaseURL, site.Token, site.UserID, site.Role, site.ParentID, now(), site.ID)
 	return err
 }
 
