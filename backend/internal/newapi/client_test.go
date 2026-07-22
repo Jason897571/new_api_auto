@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"newapiauto/internal/pricing"
@@ -36,6 +37,52 @@ func TestGetOptionsFiltersManaged(t *testing.T) {
 	}
 	if _, ok := opts["SMTPServer"]; ok {
 		t.Fatal("non-managed key should be filtered out")
+	}
+}
+
+// 目标站响应被截断（声明的 Content-Length 大于实际写入后提前断连）时，
+// 客户端应报出“读取截断”的真实原因，而不是误导的 JSON 解码错误。
+func TestGetOptionsSurfacesTruncatedRead(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("hijack unsupported")
+		}
+		conn, bufrw, err := hj.Hijack()
+		if err != nil {
+			t.Fatal(err)
+		}
+		bufrw.WriteString("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 4096\r\n\r\n")
+		bufrw.WriteString(`{"success":true,"data":[`) // 只写了一部分
+		bufrw.Flush()
+		conn.Close() // 提前断连 → 客户端读到 unexpected EOF
+	}))
+	defer srv.Close()
+
+	c := New(Site{BaseURL: srv.URL, Token: "tk", UserID: "1"})
+	_, err := c.GetOptions(context.Background())
+	if err == nil {
+		t.Fatal("expected error on truncated body")
+	}
+	if strings.Contains(err.Error(), "unexpected end of JSON input") {
+		t.Fatalf("read failure masked as JSON decode error: %v", err)
+	}
+}
+
+// 目标站返回 200 但 body 为空时，应给出明确的“空响应”错误。
+func TestGetOptionsEmptyBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK) // 空 body
+	}))
+	defer srv.Close()
+
+	c := New(Site{BaseURL: srv.URL, Token: "tk", UserID: "1"})
+	_, err := c.GetOptions(context.Background())
+	if err == nil {
+		t.Fatal("expected error on empty body")
+	}
+	if strings.Contains(err.Error(), "unexpected end of JSON input") {
+		t.Fatalf("empty body should give a clear error, got: %v", err)
 	}
 }
 
