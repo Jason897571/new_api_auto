@@ -25,4 +25,5 @@ export const syncPreview = (sourceId, targetIds, selections) =>
 export const runSync = (sourceId, targetIds, selections) =>
   req('POST', '/api/sync', { source_id: sourceId, target_ids: targetIds, selections })
 export const getSnapshots = (siteId) => req('GET', `/api/sites/${siteId}/snapshots`)
+export const previewRollback = (snapshotId) => req('POST', `/api/snapshots/${snapshotId}/preview`)
 export const rollbackSnapshot = (snapshotId) => req('POST', `/api/snapshots/${snapshotId}/rollback`)
