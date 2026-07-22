@@ -347,12 +347,12 @@ export default function Editor() {
         <>
           <div className="card">
             <div className="card-scroll">
-              <table className="ledger">
+              <table className="ledger ledger-freeze">
                 <thead>
                   <tr>
                     <th className="chk"><input type="checkbox" checked={allShownSelected} onChange={toggleSelectAll} title="全选当前筛选" /></th>
                     <th className="gut">#</th>
-                    <th>模型</th><th>模式</th>
+                    <th className="col-model">模型</th><th>模式</th>
                     {PRICE_FIELDS.map((f) => <th key={f.key} className="num">{f.label}</th>)}
                     <th>阶梯表达式</th><th>操作</th>
                   </tr>
@@ -364,7 +364,7 @@ export default function Editor() {
                       <tr key={m.model} className={isDel ? 'row-del' : (selected[m.model] ? 'row-sel' : undefined)}>
                         <td className="chk"><input type="checkbox" checked={!!selected[m.model]} onChange={() => toggleSelect(m.model)} /></td>
                         <td className="gut">{String(i + 1).padStart(2, '0')}</td>
-                        <td className="model">{m.model}</td>
+                        <td className="model" title={m.model}>{m.model}</td>
                         <td>
                           <span className={'pill' + (m.billing_mode === 'tiered_expr' ? ' pill-tier' : '')}>{MODE_LABEL[m.billing_mode] || m.billing_mode}</span>
                           {added[m.model] && <span className="pill pill-new" style={{ marginLeft: 6 }}>新增</span>}
