@@ -6,3 +6,4 @@ backend/backend
 .DS_Store
 .env
 backend/frontend/
+.superpowers
