@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"math"
 	"sort"
 	"strconv"
 
@@ -8,9 +9,14 @@ import (
 )
 
 type FieldDiff struct {
-	Field  pricing.Field `json:"field"`
-	Source *string       `json:"source"`
-	Target *string       `json:"target"`
+	Field pricing.Field `json:"field"`
+	Label string        `json:"label"` // 中文价格标签（输入价/输出价/…）
+	// 原始 ratio 字符串值（同步仍按此复制）。
+	Source *string `json:"source"`
+	Target *string `json:"target"`
+	// 各站按自己输入价换算出的显示价格（用于同步页直观展示；nil=不可换算）。
+	SourcePrice *string `json:"source_price"`
+	TargetPrice *string `json:"target_price"`
 }
 
 type ModelDiff struct {
@@ -23,6 +29,17 @@ func fmtFloat(p *float64) *string {
 		return nil
 	}
 	s := strconv.FormatFloat(*p, 'f', -1, 64)
+	return &s
+}
+
+// fmtPrice 展示价格：四舍五入到 6 位小数、去尾零，消除 输入价×倍率 累积的浮点噪声
+//（如 1.9999999999995886 -> 2）。与前端 fmtNum 一致。
+func fmtPrice(p *float64) *string {
+	if p == nil {
+		return nil
+	}
+	v := math.Round(*p*1e6) / 1e6
+	s := strconv.FormatFloat(v, 'f', -1, 64)
 	return &s
 }
 
@@ -96,16 +113,20 @@ func Compute(source, target map[string]*pricing.ModelPricing) []ModelDiff {
 		for _, f := range ratioFields {
 			sv, tv := ratioValue(s, f), ratioValue(t, f)
 			if !eqPtr(sv, tv) {
-				fields = append(fields, FieldDiff{Field: f, Source: sv, Target: tv})
+				fields = append(fields, FieldDiff{
+					Field: f, Label: pricing.PriceLabel(f), Source: sv, Target: tv,
+					SourcePrice: fmtPrice(pricing.DisplayPrice(s, f)),
+					TargetPrice: fmtPrice(pricing.DisplayPrice(t, f)),
+				})
 			}
 		}
-		// BillingMode
+		// BillingMode（无价格，值本身即模式名）
 		if sv, tv := modeValue(s), modeValue(t); !eqPtr(sv, tv) {
-			fields = append(fields, FieldDiff{Field: pricing.FieldBillingMode, Source: sv, Target: tv})
+			fields = append(fields, FieldDiff{Field: pricing.FieldBillingMode, Label: pricing.PriceLabel(pricing.FieldBillingMode), Source: sv, Target: tv})
 		}
-		// BillingExpr
+		// BillingExpr（无价格，值本身即表达式）
 		if sv, tv := exprValue(s), exprValue(t); !eqPtr(sv, tv) {
-			fields = append(fields, FieldDiff{Field: pricing.FieldBillingExpr, Source: sv, Target: tv})
+			fields = append(fields, FieldDiff{Field: pricing.FieldBillingExpr, Label: pricing.PriceLabel(pricing.FieldBillingExpr), Source: sv, Target: tv})
 		}
 		if len(fields) > 0 {
 			out = append(out, ModelDiff{Model: model, Fields: fields})

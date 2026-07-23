@@ -26,6 +26,7 @@ func NewRouter(st *store.Store) http.Handler {
 		r.Post("/sync/preview", s.postSyncPreview)
 		r.Post("/sync", s.postSync)
 		r.Get("/sites/{id}/snapshots", s.listSnapshots)
+		r.Post("/snapshots/{id}/preview", s.rollbackPreview)
 		r.Post("/snapshots/{id}/rollback", s.rollbackSnapshot)
 	})
 	return r

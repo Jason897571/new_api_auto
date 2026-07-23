@@ -26,7 +26,10 @@ type Client struct {
 
 func New(s Site) *Client {
 	s.BaseURL = strings.TrimRight(s.BaseURL, "/")
-	return &Client{site: s, http: &http.Client{Timeout: 20 * time.Second}}
+	// 仅作兜底上限，避免无 deadline 的调用永久挂起；实际时限由各调用方传入的
+	// context 控制（diff 30s、edit 40s、sync 120s 等）。原先 20s 的硬超时比这些
+	// context 更短，会在大站点/多站点场景下把较大的 option 响应从中间截断。
+	return &Client{site: s, http: &http.Client{Timeout: 150 * time.Second}}
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
@@ -48,9 +51,17 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 		return nil, err
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		// 不能吞掉读错误：响应被截断（超时/断连）时若忽略，会退化成误导性的
+		// “unexpected end of JSON input”，掩盖真实原因。
+		return nil, fmt.Errorf("%s %s: read body (http %d): %w", method, path, resp.StatusCode, err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s %s: http %d: %s", method, path, resp.StatusCode, string(b))
+	}
+	if len(b) == 0 {
+		return nil, fmt.Errorf("%s %s: empty response body (http %d)", method, path, resp.StatusCode)
 	}
 	return b, nil
 }

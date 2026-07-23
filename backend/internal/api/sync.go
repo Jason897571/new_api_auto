@@ -37,7 +37,8 @@ func (s *server) postDiff(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad body")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	// diff 需顺序拉取 源站 + 目标站 两个（可能较大的）option 响应，给足时间。
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	src, err := s.loadPricing(ctx, req.SourceID)
 	if err != nil {
